@@ -1,0 +1,1353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Factorio Flounderers</title>
+  <style>
+    :root {
+      --bg:        #0c0800;
+      --surface:   #1a1005;
+      --surface2:  #231508;
+      --border:    #7a5018;
+      --text:      #d4a040;
+      --text-dim:  #7a5a28;
+      --accent:    #c47830;
+      --green:     #7ab040;
+      --amber:     #d48010;
+      --red:       #b03018;
+      --green-bg:  rgba(122, 176, 64, 0.14);
+      --amber-bg:  rgba(212, 128, 16, 0.14);
+      --red-bg:    rgba(176, 48, 24, 0.14);
+      --now-color: #e8b840;
+      --cell-w:    52px;
+      --label-w:   210px;
+      --row-h:     64px;
+      --header-h:  36px;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      background-image: radial-gradient(ellipse at 50% 0%, rgba(120,70,10,0.12) 0%, transparent 65%);
+      color: var(--text);
+      font-family: 'SF Mono', 'Fira Code', ui-monospace, monospace;
+      font-size: 13px;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      height: 100vh;
+    }
+
+    /* ── Gear animations ── */
+    @keyframes spin-cw  { to { transform: rotate( 360deg); } }
+    @keyframes spin-ccw { to { transform: rotate(-360deg); } }
+    .gear-cw  { animation: spin-cw  var(--spd) linear infinite; transform-origin: center; }
+    .gear-ccw { animation: spin-ccw var(--spd) linear infinite; transform-origin: center; }
+    .gear { cursor: pointer; transition: filter 0.25s; flex-shrink: 0; }
+    .gear:hover { filter: brightness(1.4) drop-shadow(0 0 5px rgba(196,120,48,0.9)); }
+    .gear-turbo { animation-duration: 0.4s !important; filter: drop-shadow(0 0 10px #e8b840) brightness(1.6) !important; }
+
+    /* ── Rivets ── */
+    .rivet {
+      position: absolute;
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 38% 35%, #c09050, #4a2808);
+      box-shadow: inset 0 1px 2px rgba(255,210,120,0.4), 0 1px 3px rgba(0,0,0,0.8);
+      pointer-events: none;
+      z-index: 10;
+    }
+    .rivet-tl { top: 7px; left: 7px; }
+    .rivet-tr { top: 7px; right: 7px; }
+    .rivet-bl { bottom: 7px; left: 7px; }
+    .rivet-br { bottom: 7px; right: 7px; }
+
+    /* ── Diagonal stripe texture (reused) ── */
+    .stripe-bg {
+      background-image: repeating-linear-gradient(
+        -45deg,
+        transparent, transparent 14px,
+        rgba(255,180,60,0.022) 14px, rgba(255,180,60,0.022) 15px
+      );
+    }
+
+    /* ── Header ── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+      height: 58px;
+      flex-shrink: 0;
+      background: var(--surface);
+      border-bottom: 2px solid var(--border);
+      position: relative;
+    }
+    .header-left, .header-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .app-title {
+      font-family: Georgia, 'Times New Roman', serif;
+      font-size: 15px;
+      font-weight: bold;
+      letter-spacing: 0.1em;
+      color: var(--text);
+      text-transform: uppercase;
+      text-shadow: 0 0 18px rgba(212,160,64,0.4), 0 1px 0 rgba(0,0,0,0.9);
+    }
+    #utc-clock {
+      font-size: 12px;
+      color: var(--text-dim);
+      letter-spacing: 0.05em;
+    }
+
+    /* ── Search bar ── */
+    .search-bar {
+      flex-shrink: 0;
+      padding: 12px 24px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      position: relative;
+    }
+    .search-row { display: flex; gap: 8px; max-width: 440px; }
+
+    #search-input {
+      flex: 1;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 8px 12px;
+      font-family: inherit;
+      font-size: 13px;
+      outline: none;
+      border-radius: 2px;
+      transition: border-color 0.15s;
+    }
+    #search-input::placeholder { color: var(--text-dim); }
+    #search-input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(196,120,48,0.2); }
+
+    .add-btn {
+      background: var(--accent);
+      color: #160800;
+      border: none;
+      padding: 8px 18px;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 700;
+      border-radius: 2px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      transition: opacity 0.15s;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.6);
+    }
+    .add-btn:hover { opacity: 0.84; box-shadow: 0 2px 12px rgba(196,120,48,0.45); }
+
+    /* ── Autocomplete ── */
+    #autocomplete {
+      position: absolute;
+      top: calc(100% - 12px);
+      left: 24px;
+      width: 440px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-top: none;
+      z-index: 100;
+      display: none;
+      border-radius: 0 0 4px 4px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.75);
+      overflow: hidden;
+    }
+    #autocomplete.open { display: block; }
+    .ac-item {
+      padding: 9px 12px;
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      transition: background 0.1s;
+      border-bottom: 1px solid rgba(122,80,24,0.3);
+    }
+    .ac-item:last-child { border-bottom: none; }
+    .ac-item:hover, .ac-item.active { background: var(--surface); color: var(--accent); }
+    .ac-tz { color: var(--text-dim); font-size: 11px; }
+
+    /* ── Timeline area ── */
+    .timeline-area {
+      flex: 1;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+
+    /* ── Empty state ── */
+    #empty-state {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      color: var(--text-dim);
+    }
+    #empty-state .em-big {
+      font-family: Georgia, serif;
+      font-size: 16px;
+      color: var(--text);
+      letter-spacing: 0.05em;
+    }
+    #empty-state .em-sub { font-size: 12px; }
+
+    /* ── Grid scroll ── */
+    #grid-scroll {
+      flex: 1;
+      overflow-x: auto;
+      overflow-y: auto;
+      position: relative;
+    }
+    #grid-scroll::-webkit-scrollbar { height: 6px; width: 6px; }
+    #grid-scroll::-webkit-scrollbar-track { background: var(--bg); }
+    #grid-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+    #grid-scroll::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+
+    /* ── Grid table ── */
+    #grid-table {
+      border-collapse: separate;
+      border-spacing: 0;
+      position: relative;
+      min-width: calc(var(--label-w) + var(--cell-w) * 24);
+    }
+
+    /* Sticky label column */
+    .label-cell {
+      position: sticky;
+      left: 0;
+      z-index: 5;
+      background: var(--surface);
+      width: var(--label-w);
+      min-width: var(--label-w);
+      max-width: var(--label-w);
+      padding: 0 12px;
+      border-right: 2px solid var(--border);
+      vertical-align: middle;
+    }
+
+    /* Header row */
+    thead tr { background: var(--surface2); }
+    thead .label-cell {
+      background: var(--surface2);
+      z-index: 6;
+      height: var(--header-h);
+      font-size: 10px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      border-bottom: 2px solid var(--border);
+    }
+    .lc-header-inner { display: flex; align-items: center; gap: 6px; }
+
+    th.hour-cell {
+      height: var(--header-h);
+      text-align: center;
+      font-size: 11px;
+      color: var(--text-dim);
+      background: var(--surface2);
+      border-bottom: 2px solid var(--border);
+      border-right: 1px solid rgba(122,80,24,0.4);
+      width: var(--cell-w);
+      font-weight: 400;
+      letter-spacing: 0.04em;
+    }
+    th.hour-cell.now-hour { color: var(--now-color); font-weight: 700; }
+
+    /* Data rows */
+    tbody tr { border-bottom: 1px solid rgba(122,80,24,0.4); }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody .label-cell { height: var(--row-h); border-bottom: 1px solid rgba(122,80,24,0.4); }
+
+    .lc-inner { display: flex; flex-direction: column; gap: 3px; padding-right: 26px; }
+    .lc-name { font-size: 13px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .lc-time { font-size: 15px; font-weight: 700; color: var(--accent); letter-spacing: 0.04em; font-variant-numeric: tabular-nums; }
+    .lc-offset { font-size: 10px; color: var(--text-dim); letter-spacing: 0.05em; }
+
+    .remove-btn {
+      position: absolute; top: 50%; right: 8px; transform: translateY(-50%);
+      background: none; border: none; color: var(--text-dim);
+      cursor: pointer; font-size: 16px; line-height: 1; padding: 2px 4px;
+      border-radius: 2px; transition: color 0.15s, background 0.15s;
+    }
+    .remove-btn:hover { color: var(--red); background: rgba(176,48,24,0.18); }
+
+    /* Hour data cells */
+    td.hour-cell {
+      width: var(--cell-w); min-width: var(--cell-w); height: var(--row-h);
+      text-align: center; vertical-align: middle;
+      font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
+      border-right: 1px solid rgba(122,80,24,0.28);
+      cursor: pointer;
+      transition: filter 0.1s;
+      position: relative;
+      font-variant-numeric: tabular-nums;
+      user-select: none;
+    }
+    td.hour-cell:hover { filter: brightness(1.5); }
+    td.hour-cell.green { background: var(--green-bg); color: var(--green); }
+    td.hour-cell.amber { background: var(--amber-bg); color: var(--amber); }
+    td.hour-cell.red   { background: var(--red-bg);   color: var(--red);   }
+    td.hour-cell.now-hour::after {
+      content: ''; position: absolute; inset: 0;
+      background: rgba(232,184,64,0.07); pointer-events: none;
+    }
+
+    /* ── NOW line ── */
+    #now-line {
+      position: absolute; top: 0; bottom: 0; width: 2px;
+      background: var(--now-color); z-index: 20; pointer-events: none;
+      animation: now-pulse 2.4s ease-in-out infinite;
+    }
+    @keyframes now-pulse {
+      0%, 100% { box-shadow: 0 0 10px rgba(232,184,64,0.75), 0 0 3px rgba(232,184,64,1); }
+      50%       { box-shadow: 0 0 4px rgba(232,184,64,0.3),  0 0 2px rgba(232,184,64,0.55); }
+    }
+    #now-label {
+      position: absolute; top: 0; left: 4px;
+      background: var(--now-color); color: #1a0800;
+      font-size: 9px; font-weight: 800; letter-spacing: 0.12em;
+      padding: 2px 5px; border-radius: 0 0 3px 3px; white-space: nowrap;
+    }
+
+    /* ── Legend ── */
+    .legend {
+      flex-shrink: 0; display: flex; gap: 20px; align-items: center;
+      padding: 8px 24px; border-top: 2px solid var(--border); background: var(--surface);
+    }
+    .legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-dim); white-space: nowrap; }
+    .legend-dot { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+
+    /* ── Hover tooltip ── */
+    #cell-tooltip {
+      position: fixed; display: none; z-index: 150; pointer-events: none;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--border), 0 10px 28px rgba(0,0,0,0.8);
+      padding: 10px 12px; min-width: 155px;
+    }
+    .ctt-header {
+      font-family: Georgia, serif; font-size: 13px; font-weight: bold;
+      color: var(--now-color); letter-spacing: 0.08em;
+      margin-bottom: 7px; padding-bottom: 6px;
+      border-bottom: 1px solid rgba(122,80,24,0.55);
+    }
+    .ctt-row {
+      display: flex; justify-content: space-between; gap: 12px;
+      font-size: 11px; padding: 3px 0;
+    }
+    .ctt-row.green { color: var(--green); }
+    .ctt-row.amber { color: var(--amber); }
+    .ctt-row.red   { color: var(--red); }
+    .ctt-hint {
+      margin-top: 8px; padding-top: 6px;
+      border-top: 1px solid rgba(122,80,24,0.4);
+      font-size: 10px; color: var(--text-dim);
+      letter-spacing: 0.09em; text-transform: uppercase;
+    }
+
+    /* ── Calendar overlay + modal ── */
+    #cal-overlay {
+      position: fixed; inset: 0; display: none;
+      align-items: center; justify-content: center;
+      background: rgba(6,3,0,0.9); z-index: 200;
+      backdrop-filter: blur(3px);
+    }
+    #cal-modal {
+      position: relative;
+      background: var(--surface);
+      background-image: repeating-linear-gradient(
+        -45deg, transparent, transparent 16px,
+        rgba(255,180,60,0.025) 16px, rgba(255,180,60,0.025) 17px
+      );
+      border: 2px solid var(--border);
+      box-shadow: 0 0 0 4px var(--bg), 0 0 0 6px var(--border), 0 20px 60px rgba(0,0,0,0.9);
+      padding: 30px 28px 24px;
+      width: 400px; max-width: calc(100vw - 32px);
+      overflow: visible;
+    }
+    .cal-title {
+      font-family: Georgia, serif; font-size: 14px; font-weight: bold;
+      letter-spacing: 0.15em; color: var(--text); text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+    .cal-utc {
+      font-size: 26px; font-weight: 700; color: var(--now-color);
+      letter-spacing: 0.05em; margin-bottom: 14px; font-variant-numeric: tabular-nums;
+    }
+    #cal-friend-times {
+      margin-bottom: 14px; max-height: 150px; overflow-y: auto;
+    }
+    #cal-friend-times::-webkit-scrollbar { width: 4px; }
+    #cal-friend-times::-webkit-scrollbar-thumb { background: var(--border); }
+    .cf-row {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 5px 10px; border: 1px solid rgba(122,80,24,0.35);
+      margin-bottom: 3px; font-size: 12px;
+    }
+    .cf-row.green { background: var(--green-bg); color: var(--green); }
+    .cf-row.amber { background: var(--amber-bg); color: var(--amber); }
+    .cf-row.red   { background: var(--red-bg);   color: var(--red); }
+    .cf-time { font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: 0.04em; }
+
+    .cal-label {
+      display: block; font-size: 9px; letter-spacing: 0.18em;
+      color: var(--text-dim); text-transform: uppercase; margin: 12px 0 5px;
+    }
+    .cal-input {
+      width: 100%; background: var(--bg); border: 1px solid var(--border);
+      color: var(--text); padding: 8px 10px; font-family: inherit; font-size: 13px;
+      outline: none; border-radius: 2px; transition: border-color 0.15s;
+      -webkit-appearance: none; appearance: none;
+    }
+    .cal-input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(196,120,48,0.2); }
+    input[type="date"].cal-input::-webkit-calendar-picker-indicator {
+      filter: invert(0.65) sepia(1) saturate(2.5) hue-rotate(5deg); cursor: pointer;
+    }
+    select.cal-input option { background: var(--surface2); }
+
+    #cal-submit {
+      margin-top: 18px; width: 100%;
+      background: var(--accent); color: #140800;
+      border: none; padding: 12px 16px; cursor: pointer;
+      font-family: inherit; font-size: 12px; font-weight: 700;
+      letter-spacing: 0.1em; text-transform: uppercase; border-radius: 2px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,220,120,0.3);
+      transition: opacity 0.15s, box-shadow 0.15s;
+    }
+    #cal-submit:hover { opacity: 0.87; box-shadow: 0 4px 16px rgba(196,120,48,0.55), inset 0 1px 0 rgba(255,220,120,0.3); }
+    #cal-close {
+      position: absolute; top: 10px; right: 12px;
+      background: none; border: none; color: var(--text-dim);
+      font-size: 22px; cursor: pointer; line-height: 1; padding: 2px 5px;
+      border-radius: 2px; transition: color 0.15s;
+    }
+    #cal-close:hover { color: var(--red); }
+    .modal-gear { position: absolute; opacity: 0.55; }
+    .modal-gear-tl { top: -12px; left: -12px; }
+    .modal-gear-tr { top: -10px; right: -10px; }
+
+    /* ── Help button ── */
+    .help-btn {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      font-family: Georgia, serif;
+      font-size: 15px; font-weight: bold;
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      cursor: pointer; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      transition: color 0.15s, border-color 0.15s, box-shadow 0.15s;
+      line-height: 1;
+    }
+    .help-btn:hover { color: var(--text); border-color: var(--accent); box-shadow: 0 0 8px rgba(196,120,48,0.45); }
+
+    /* ── Help / Docs screen ── */
+    #help-screen {
+      position: fixed; inset: 0; z-index: 300;
+      display: none; flex-direction: column;
+      background: var(--bg);
+      background-image: radial-gradient(ellipse at 50% 0%, rgba(120,70,10,0.12) 0%, transparent 65%);
+      overflow-y: auto;
+    }
+    #help-screen.open { display: flex; }
+
+    .help-topbar {
+      display: flex; align-items: center; gap: 16px;
+      padding: 0 32px; height: 58px; flex-shrink: 0;
+      background: var(--surface); border-bottom: 2px solid var(--border);
+      position: sticky; top: 0; z-index: 10;
+      background-image: repeating-linear-gradient(
+        -45deg, transparent, transparent 14px,
+        rgba(255,180,60,0.022) 14px, rgba(255,180,60,0.022) 15px
+      );
+    }
+    .help-back {
+      background: none; border: 1px solid var(--border); color: var(--text-dim);
+      font-family: inherit; font-size: 11px; font-weight: 600;
+      padding: 6px 14px; cursor: pointer; border-radius: 2px;
+      letter-spacing: 0.1em; text-transform: uppercase;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .help-back:hover { color: var(--text); border-color: var(--accent); }
+    .help-topbar-title {
+      font-family: Georgia, serif; font-size: 15px; font-weight: bold;
+      letter-spacing: 0.12em; color: var(--text); text-transform: uppercase;
+    }
+
+    .help-content {
+      padding: 48px 32px 64px;
+      max-width: 700px; margin: 0 auto; width: 100%;
+    }
+
+    /* Dedication plaque */
+    .dedication {
+      position: relative;
+      border: 2px solid var(--border);
+      background: var(--surface);
+      background-image: repeating-linear-gradient(
+        -45deg, transparent, transparent 16px,
+        rgba(255,180,60,0.025) 16px, rgba(255,180,60,0.025) 17px
+      );
+      box-shadow: 0 0 0 4px var(--bg), 0 0 0 6px var(--border);
+      padding: 32px 36px;
+      margin-bottom: 48px;
+      text-align: center;
+    }
+    .dedication-label {
+      font-size: 9px; letter-spacing: 0.22em; color: var(--text-dim);
+      text-transform: uppercase; margin-bottom: 16px;
+    }
+    .dedication-name {
+      font-family: Georgia, serif; font-size: 22px; font-weight: bold;
+      color: var(--now-color); letter-spacing: 0.08em;
+      margin-bottom: 6px;
+      text-shadow: 0 0 20px rgba(232,184,64,0.4);
+    }
+    .dedication-subtitle {
+      font-size: 11px; color: var(--text-dim); letter-spacing: 0.06em;
+      margin-bottom: 28px; font-style: italic;
+    }
+    .haiku {
+      border-top: 1px solid rgba(122,80,24,0.5);
+      border-bottom: 1px solid rgba(122,80,24,0.5);
+      padding: 20px 0;
+      margin-bottom: 22px;
+    }
+    .haiku-line {
+      font-family: Georgia, serif; font-size: 15px;
+      color: var(--text); letter-spacing: 0.05em; line-height: 2;
+    }
+    .haiku-label {
+      font-size: 9px; letter-spacing: 0.2em; color: var(--text-dim);
+      text-transform: uppercase; margin-top: 12px;
+    }
+    .dedication-body {
+      font-size: 12px; color: var(--text-dim); line-height: 1.7;
+      letter-spacing: 0.02em;
+    }
+
+    /* Docs sections */
+    .help-section {
+      margin-bottom: 36px;
+      border-left: 2px solid var(--border);
+      padding-left: 20px;
+    }
+    .help-section-title {
+      font-family: Georgia, serif; font-size: 13px; font-weight: bold;
+      letter-spacing: 0.12em; color: var(--accent); text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+    .help-section p, .help-section li {
+      font-size: 12px; color: var(--text-dim); line-height: 1.8;
+    }
+    .help-section ul { list-style: none; padding: 0; }
+    .help-section li::before { content: '⚙ '; color: var(--border); }
+    .help-section li { margin-bottom: 4px; }
+    .help-section strong { color: var(--text); font-weight: 600; }
+    .help-swatch {
+      display: inline-block; width: 10px; height: 10px;
+      border-radius: 2px; vertical-align: middle; margin-right: 4px;
+    }
+    .help-divider {
+      border: none; border-top: 1px solid rgba(122,80,24,0.35);
+      margin: 40px 0;
+    }
+    .help-section-group-title {
+      font-size: 9px; letter-spacing: 0.2em; color: var(--text-dim);
+      text-transform: uppercase; margin-bottom: 24px; margin-top: 8px;
+    }
+  </style>
+</head>
+<body>
+
+<header class="stripe-bg">
+  <div class="header-left">
+    <!-- gears injected by JS -->
+    <div class="app-title">Factorio Flounderers</div>
+  </div>
+  <div class="header-right">
+    <div id="utc-clock"></div>
+    <!-- gear-c injected by JS -->
+    <button class="help-btn" id="help-btn" title="How it works">?</button>
+  </div>
+</header>
+
+<div class="search-bar stripe-bg">
+  <div class="search-row">
+    <input type="text" id="search-input" placeholder="Add a city or country…" autocomplete="off" spellcheck="false">
+    <button class="add-btn" id="add-btn">+ Add</button>
+  </div>
+  <div id="autocomplete"></div>
+</div>
+
+<div class="timeline-area">
+  <div id="empty-state">
+    <!-- empty-state gear injected by JS -->
+    <div class="em-big">No locations added yet.</div>
+    <div class="em-sub">Search for a city or country above to get started.</div>
+  </div>
+  <div id="grid-scroll" style="display:none">
+    <table id="grid-table">
+      <thead id="grid-thead"></thead>
+      <tbody id="grid-tbody"></tbody>
+    </table>
+    <div id="now-line"><div id="now-label">NOW</div></div>
+  </div>
+</div>
+
+<div class="legend">
+  <div class="legend-item">
+    <div class="legend-dot" style="background:var(--green-bg);border:1px solid var(--green)"></div>
+    Gaming (10:00 – 22:00)
+  </div>
+  <div class="legend-item">
+    <div class="legend-dot" style="background:var(--amber-bg);border:1px solid var(--amber)"></div>
+    Early / Late (08–10 · 22–00)
+  </div>
+  <div class="legend-item">
+    <div class="legend-dot" style="background:var(--red-bg);border:1px solid var(--red)"></div>
+    Sleeping (00:00 – 08:00)
+  </div>
+  <div class="legend-item" style="margin-left:auto">
+    <div style="width:10px;height:10px;background:var(--now-color);border-radius:2px;flex-shrink:0"></div>
+    NOW
+  </div>
+</div>
+
+<!-- Help / Documentation screen -->
+<div id="help-screen">
+  <div class="help-topbar stripe-bg">
+    <!-- back-gear injected by JS -->
+    <button class="help-back" id="help-back">← Back</button>
+    <div class="help-topbar-title">How It Works</div>
+  </div>
+
+  <div class="help-content">
+
+    <!-- ── Dedication ── -->
+    <div class="dedication" id="dedication-plaque">
+      <!-- plaque gears injected by JS -->
+      <div class="dedication-label">Dedicated to</div>
+      <div class="dedication-name">Fergus Roache</div>
+      <div class="dedication-subtitle">
+        Champion of proper process, organisation,<br>
+        and the timely extermination of biters.
+      </div>
+      <div class="haiku">
+        <div class="haiku-line">Cold rock, warm coffee</div>
+        <div class="haiku-line">Biters fall before bedtime</div>
+        <div class="haiku-line">Cabbage, chocolate</div>
+        <div class="haiku-label">— A haiku</div>
+      </div>
+      <div class="dedication-body">
+        To a man who climbs rocks with chalk-dusted hands, maintains a sleep schedule
+        that would shame a Swiss train conductor, and understands that a well-oiled
+        machine — whether factory, friendship, or morning routine — runs on coffee,
+        cabbage, dark chocolate, and the occasional biter purge.
+      </div>
+    </div>
+
+    <!-- ── Docs ── -->
+    <div class="help-section-group-title">⚙ Documentation</div>
+
+    <div class="help-section">
+      <div class="help-section-title">Adding Locations</div>
+      <ul>
+        <li>Type any <strong>city</strong> (e.g. Tokyo, Sydney) or <strong>country</strong> (e.g. Germany, Australia) in the search bar.</li>
+        <li>Select a match from the autocomplete dropdown, or press <strong>Enter</strong> to pick the first result.</li>
+        <li>Click <strong>+ Add</strong> or press Enter to confirm. The same timezone cannot be added twice.</li>
+        <li>Remove a location by clicking the <strong>×</strong> button in its label. Your list is saved automatically across sessions.</li>
+      </ul>
+    </div>
+
+    <div class="help-section">
+      <div class="help-section-title">Reading the Timeline</div>
+      <ul>
+        <li>The <strong>column headers</strong> (00–23) represent UTC hours — a shared universal clock.</li>
+        <li>Each <strong>row</strong> represents one of your friend's locations.</li>
+        <li>Each <strong>cell</strong> shows the <em>local hour</em> in that location's timezone for the corresponding UTC hour. Half-hour and 45-minute offsets (India, Nepal, etc.) are handled automatically.</li>
+        <li>The timeline scrolls horizontally. On load it centres around the current time.</li>
+      </ul>
+    </div>
+
+    <div class="help-section">
+      <div class="help-section-title">Colour Coding</div>
+      <ul>
+        <li><span class="help-swatch" style="background:var(--green-bg);border:1px solid var(--green)"></span><strong style="color:var(--green)">Green</strong> — 10:00–22:00 local. Prime gaming hours.</li>
+        <li><span class="help-swatch" style="background:var(--amber-bg);border:1px solid var(--amber)"></span><strong style="color:var(--amber)">Amber</strong> — 08:00–10:00 or 22:00–00:00 local. Early morning or winding down.</li>
+        <li><span class="help-swatch" style="background:var(--red-bg);border:1px solid var(--red)"></span><strong style="color:var(--red)">Red</strong> — 00:00–08:00 local. Your friend is almost certainly asleep.</li>
+      </ul>
+    </div>
+
+    <div class="help-section">
+      <div class="help-section-title">The NOW Line</div>
+      <ul>
+        <li>The <strong style="color:var(--now-color)">gold vertical line</strong> marks the current UTC time — it updates every 30 seconds.</li>
+        <li>The current UTC hour column is also highlighted across all rows.</li>
+        <li>Each friend's label shows their current local time, refreshed automatically.</li>
+      </ul>
+    </div>
+
+    <hr class="help-divider">
+
+    <div class="help-section">
+      <div class="help-section-title">Scheduling a Session</div>
+      <ul>
+        <li><strong>Hover</strong> any hour cell to see a tooltip listing every friend's local time at that UTC hour.</li>
+        <li><strong>Click</strong> any hour cell to open the Schedule Session panel.</li>
+        <li>Choose a <strong>date</strong>, edit the <strong>event title</strong>, set a <strong>duration</strong>, then click <strong>Open in Google Calendar</strong>.</li>
+        <li>A pre-filled Google Calendar event opens in a new tab, including all friends' local times in the description. Invite your friends from there.</li>
+      </ul>
+    </div>
+
+    <div class="help-section">
+      <div class="help-section-title">Gear Interactions</div>
+      <ul>
+        <li>Every gear in the interface is <strong>clickable</strong>.</li>
+        <li>Clicking a gear makes it <strong>spin at full speed</strong> for two seconds, with a gold glow, before settling back to its normal pace.</li>
+        <li>This has no functional effect whatsoever, but it is extremely satisfying.</li>
+      </ul>
+    </div>
+
+    <div class="help-section">
+      <div class="help-section-title">Data &amp; Privacy</div>
+      <ul>
+        <li>All timezone data is computed <strong>entirely in your browser</strong> using the built-in <code>Intl</code> API.</li>
+        <li>Your location list is stored in <strong>localStorage</strong> — nothing is sent to any server.</li>
+        <li>This is a fully self-contained HTML file. No internet connection required after loading.</li>
+      </ul>
+    </div>
+
+  </div>
+</div>
+
+<!-- Hover tooltip -->
+<div id="cell-tooltip">
+  <div class="ctt-header" id="ctt-header"></div>
+  <div id="ctt-rows"></div>
+  <div class="ctt-hint">⚙ click to schedule</div>
+</div>
+
+<!-- Calendar modal -->
+<div id="cal-overlay">
+  <div id="cal-modal">
+    <button id="cal-close">×</button>
+    <div class="cal-title">⚙ Schedule Session</div>
+    <div class="cal-utc" id="cal-utc-label">UTC 00:00</div>
+    <div id="cal-friend-times"></div>
+    <label class="cal-label" for="cal-date">Date</label>
+    <input type="date" id="cal-date" class="cal-input">
+    <label class="cal-label" for="cal-event-title">Event Title</label>
+    <input type="text" id="cal-event-title" class="cal-input" value="Factorio Flounderers Gaming Session">
+    <label class="cal-label" for="cal-duration">Duration</label>
+    <select id="cal-duration" class="cal-input">
+      <option value="1">1 hour</option>
+      <option value="2">2 hours</option>
+      <option value="3">3 hours</option>
+      <option value="4">4 hours</option>
+    </select>
+    <button id="cal-submit">📅 Open in Google Calendar</button>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TIMEZONE DATA
+// ─────────────────────────────────────────────────────────────────────────────
+const TZ = {
+  // ── Countries ──
+  "afghanistan":"Asia/Kabul","albania":"Europe/Tirane","algeria":"Africa/Algiers",
+  "andorra":"Europe/Andorra","angola":"Africa/Luanda",
+  "argentina":"America/Argentina/Buenos_Aires","armenia":"Asia/Yerevan",
+  "australia":"Australia/Sydney","austria":"Europe/Vienna","azerbaijan":"Asia/Baku",
+  "bahrain":"Asia/Bahrain","bangladesh":"Asia/Dhaka","belarus":"Europe/Minsk",
+  "belgium":"Europe/Brussels","bolivia":"America/La_Paz","bosnia":"Europe/Sarajevo",
+  "botswana":"Africa/Gaborone","brazil":"America/Sao_Paulo","brunei":"Asia/Brunei",
+  "bulgaria":"Europe/Sofia","cambodia":"Asia/Phnom_Penh","cameroon":"Africa/Douala",
+  "canada":"America/Toronto","chile":"America/Santiago","china":"Asia/Shanghai",
+  "colombia":"America/Bogota","costa rica":"America/Costa_Rica","croatia":"Europe/Zagreb",
+  "cuba":"America/Havana","cyprus":"Asia/Nicosia","czech republic":"Europe/Prague",
+  "czechia":"Europe/Prague","denmark":"Europe/Copenhagen",
+  "dominican republic":"America/Santo_Domingo","ecuador":"America/Guayaquil",
+  "egypt":"Africa/Cairo","el salvador":"America/El_Salvador","estonia":"Europe/Tallinn",
+  "ethiopia":"Africa/Addis_Ababa","finland":"Europe/Helsinki","france":"Europe/Paris",
+  "georgia":"Asia/Tbilisi","germany":"Europe/Berlin","ghana":"Africa/Accra",
+  "greece":"Europe/Athens","guatemala":"America/Guatemala",
+  "honduras":"America/Tegucigalpa","hungary":"Europe/Budapest",
+  "iceland":"Atlantic/Reykjavik","india":"Asia/Kolkata","indonesia":"Asia/Jakarta",
+  "iran":"Asia/Tehran","iraq":"Asia/Baghdad","ireland":"Europe/Dublin",
+  "israel":"Asia/Jerusalem","italy":"Europe/Rome","jamaica":"America/Jamaica",
+  "japan":"Asia/Tokyo","jordan":"Asia/Amman","kazakhstan":"Asia/Almaty",
+  "kenya":"Africa/Nairobi","kuwait":"Asia/Kuwait","kyrgyzstan":"Asia/Bishkek",
+  "laos":"Asia/Vientiane","latvia":"Europe/Riga","lebanon":"Asia/Beirut",
+  "libya":"Africa/Tripoli","liechtenstein":"Europe/Vaduz","lithuania":"Europe/Vilnius",
+  "luxembourg":"Europe/Luxembourg","macau":"Asia/Macau",
+  "malaysia":"Asia/Kuala_Lumpur","maldives":"Indian/Maldives","malta":"Europe/Malta",
+  "mexico":"America/Mexico_City","moldova":"Europe/Chisinau","monaco":"Europe/Monaco",
+  "mongolia":"Asia/Ulaanbaatar","morocco":"Africa/Casablanca","myanmar":"Asia/Rangoon",
+  "nepal":"Asia/Kathmandu","netherlands":"Europe/Amsterdam",
+  "new zealand":"Pacific/Auckland","nicaragua":"America/Managua",
+  "nigeria":"Africa/Lagos","north korea":"Asia/Pyongyang","norway":"Europe/Oslo",
+  "oman":"Asia/Muscat","pakistan":"Asia/Karachi","panama":"America/Panama",
+  "paraguay":"America/Asuncion","peru":"America/Lima","philippines":"Asia/Manila",
+  "poland":"Europe/Warsaw","portugal":"Europe/Lisbon","qatar":"Asia/Qatar",
+  "romania":"Europe/Bucharest","russia":"Europe/Moscow","saudi arabia":"Asia/Riyadh",
+  "senegal":"Africa/Dakar","serbia":"Europe/Belgrade","singapore":"Asia/Singapore",
+  "slovakia":"Europe/Bratislava","slovenia":"Europe/Ljubljana",
+  "south africa":"Africa/Johannesburg","south korea":"Asia/Seoul","spain":"Europe/Madrid",
+  "sri lanka":"Asia/Colombo","sweden":"Europe/Stockholm","switzerland":"Europe/Zurich",
+  "syria":"Asia/Damascus","taiwan":"Asia/Taipei","tajikistan":"Asia/Dushanbe",
+  "tanzania":"Africa/Dar_es_Salaam","thailand":"Asia/Bangkok","tunisia":"Africa/Tunis",
+  "turkey":"Europe/Istanbul","turkmenistan":"Asia/Ashgabat","ukraine":"Europe/Kiev",
+  "uae":"Asia/Dubai","united arab emirates":"Asia/Dubai","uk":"Europe/London",
+  "united kingdom":"Europe/London","usa":"America/New_York",
+  "united states":"America/New_York","uruguay":"America/Montevideo",
+  "uzbekistan":"Asia/Tashkent","venezuela":"America/Caracas",
+  "vietnam":"Asia/Ho_Chi_Minh","yemen":"Asia/Aden","zambia":"Africa/Lusaka",
+  "zimbabwe":"Africa/Harare",
+  // ── Cities ──
+  "abu dhabi":"Asia/Dubai","accra":"Africa/Accra","addis ababa":"Africa/Addis_Ababa",
+  "adelaide":"Australia/Adelaide","almaty":"Asia/Almaty","amsterdam":"Europe/Amsterdam",
+  "anchorage":"America/Anchorage","ankara":"Europe/Istanbul","antwerp":"Europe/Brussels",
+  "asuncion":"America/Asuncion","athens":"Europe/Athens","atlanta":"America/New_York",
+  "auckland":"Pacific/Auckland","baghdad":"Asia/Baghdad","baku":"Asia/Baku",
+  "bangkok":"Asia/Bangkok","barcelona":"Europe/Madrid","beijing":"Asia/Shanghai",
+  "beirut":"Asia/Beirut","belgrade":"Europe/Belgrade","berlin":"Europe/Berlin",
+  "bern":"Europe/Zurich","bogota":"America/Bogota","boston":"America/New_York",
+  "brasilia":"America/Sao_Paulo","bratislava":"Europe/Bratislava",
+  "brisbane":"Australia/Brisbane","brussels":"Europe/Brussels",
+  "bucharest":"Europe/Bucharest","budapest":"Europe/Budapest",
+  "buenos aires":"America/Argentina/Buenos_Aires","cairo":"Africa/Cairo",
+  "calgary":"America/Edmonton","cape town":"Africa/Johannesburg",
+  "caracas":"America/Caracas","casablanca":"Africa/Casablanca",
+  "chicago":"America/Chicago","christchurch":"Pacific/Auckland",
+  "colombo":"Asia/Colombo","cologne":"Europe/Berlin","copenhagen":"Europe/Copenhagen",
+  "dallas":"America/Chicago","dar es salaam":"Africa/Dar_es_Salaam",
+  "dc":"America/New_York","delhi":"Asia/Kolkata","denver":"America/Denver",
+  "detroit":"America/New_York","dhaka":"Asia/Dhaka","doha":"Asia/Qatar",
+  "dubai":"Asia/Dubai","dublin":"Europe/Dublin","dusseldorf":"Europe/Berlin",
+  "edinburgh":"Europe/London","edmonton":"America/Edmonton",
+  "florence":"Europe/Rome","frankfurt":"Europe/Berlin","geneva":"Europe/Zurich",
+  "guangzhou":"Asia/Shanghai","guadalajara":"America/Mexico_City",
+  "guatemala city":"America/Guatemala","hamburg":"Europe/Berlin",
+  "hanoi":"Asia/Ho_Chi_Minh","havana":"America/Havana","helsinki":"Europe/Helsinki",
+  "ho chi minh city":"Asia/Ho_Chi_Minh","hong kong":"Asia/Hong_Kong",
+  "honolulu":"Pacific/Honolulu","houston":"America/Chicago","istanbul":"Europe/Istanbul",
+  "jakarta":"Asia/Jakarta","jerusalem":"Asia/Jerusalem",
+  "johannesburg":"Africa/Johannesburg","kabul":"Asia/Kabul","karachi":"Asia/Karachi",
+  "kathmandu":"Asia/Kathmandu","kiev":"Europe/Kiev","kyiv":"Europe/Kiev",
+  "kingston":"America/Jamaica","kolkata":"Asia/Kolkata",
+  "kuala lumpur":"Asia/Kuala_Lumpur","kuwait city":"Asia/Kuwait","la":"America/Los_Angeles",
+  "la paz":"America/La_Paz","lagos":"Africa/Lagos","lahore":"Asia/Karachi",
+  "lima":"America/Lima","lisbon":"Europe/Lisbon","london":"Europe/London",
+  "los angeles":"America/Los_Angeles","luxembourg city":"Europe/Luxembourg",
+  "lyon":"Europe/Paris","madrid":"Europe/Madrid","managua":"America/Managua",
+  "manila":"Asia/Manila","marseille":"Europe/Paris","melbourne":"Australia/Melbourne",
+  "mexico city":"America/Mexico_City","miami":"America/New_York","milan":"Europe/Rome",
+  "minneapolis":"America/Chicago","minsk":"Europe/Minsk","monterrey":"America/Mexico_City",
+  "montevideo":"America/Montevideo","montreal":"America/Toronto",
+  "moscow":"Europe/Moscow","mumbai":"Asia/Kolkata","munich":"Europe/Berlin",
+  "muscat":"Asia/Muscat","nairobi":"Africa/Nairobi","naples":"Europe/Rome",
+  "nassau":"America/Nassau","new delhi":"Asia/Kolkata","new york":"America/New_York",
+  "new york city":"America/New_York","nicosia":"Asia/Nicosia","nyc":"America/New_York",
+  "oslo":"Europe/Oslo","ottawa":"America/Toronto","paris":"Europe/Paris",
+  "perth":"Australia/Perth","philadelphia":"America/New_York",
+  "phnom penh":"Asia/Phnom_Penh","phoenix":"America/Phoenix","porto":"Europe/Lisbon",
+  "prague":"Europe/Prague","pyongyang":"Asia/Pyongyang","quito":"America/Guayaquil",
+  "reykjavik":"Atlantic/Reykjavik","riyadh":"Asia/Riyadh","rome":"Europe/Rome",
+  "rotterdam":"Europe/Amsterdam","saigon":"Asia/Ho_Chi_Minh",
+  "san francisco":"America/Los_Angeles","san jose":"America/Costa_Rica",
+  "santiago":"America/Santiago","santo domingo":"America/Santo_Domingo",
+  "sao paulo":"America/Sao_Paulo","seattle":"America/Los_Angeles","seoul":"Asia/Seoul",
+  "seville":"Europe/Madrid","shanghai":"Asia/Shanghai","singapore city":"Asia/Singapore",
+  "sofia":"Europe/Sofia","stockholm":"Europe/Stockholm","sydney":"Australia/Sydney",
+  "taipei":"Asia/Taipei","tallinn":"Europe/Tallinn","tashkent":"Asia/Tashkent",
+  "tbilisi":"Asia/Tbilisi","tegucigalpa":"America/Tegucigalpa","tehran":"Asia/Tehran",
+  "tel aviv":"Asia/Jerusalem","tokyo":"Asia/Tokyo","toronto":"America/Toronto",
+  "tunis":"Africa/Tunis","ulaanbaatar":"Asia/Ulaanbaatar","valencia":"Europe/Madrid",
+  "vancouver":"America/Vancouver","venice":"Europe/Rome","vienna":"Europe/Vienna",
+  "vilnius":"Europe/Vilnius","warsaw":"Europe/Warsaw","washington":"America/New_York",
+  "washington dc":"America/New_York","wellington":"Pacific/Auckland",
+  "winnipeg":"America/Winnipeg","zagreb":"Europe/Zagreb","zurich":"Europe/Zurich",
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONSTANTS
+// ─────────────────────────────────────────────────────────────────────────────
+const CELL_W  = 52;
+const LABEL_W = 210;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STATE
+// ─────────────────────────────────────────────────────────────────────────────
+let locations = [];
+try { locations = JSON.parse(localStorage.getItem('tz-locs') || '[]'); } catch(_) {}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function titleCase(s) { return s.replace(/\b\w/g, c => c.toUpperCase()); }
+
+function localHourAt(utcHour, tz) {
+  const now = new Date();
+  const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), utcHour, 0, 0, 0));
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', hour12: false }).formatToParts(d);
+    return parseInt(parts.find(p => p.type === 'hour').value) % 24;
+  } catch(_) { return utcHour; }
+}
+
+function localTimeNow(tz) {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(new Date());
+    const h = (parseInt(parts.find(p => p.type === 'hour').value) % 24).toString().padStart(2,'0');
+    return `${h}:${parts.find(p => p.type === 'minute').value}`;
+  } catch(_) { return '--:--'; }
+}
+
+function utcOffset(tz) {
+  try {
+    const s = new Intl.DateTimeFormat('en', { timeZone: tz, timeZoneName: 'shortOffset' }).format(new Date());
+    const m = s.match(/GMT([+-])(\d+)(?::(\d+))?/);
+    if (!m) return '';
+    return `UTC${m[1]}${m[2].padStart(2,'0')}:${(m[3]||'00').padStart(2,'0')}`;
+  } catch(_) { return ''; }
+}
+
+function colorClass(h) {
+  if (h >= 10 && h < 22) return 'green';
+  if ((h >= 8 && h < 10) || h >= 22) return 'amber';
+  return 'red';
+}
+
+function save() { localStorage.setItem('tz-locs', JSON.stringify(locations)); }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GEAR / COG DRAWING
+// ─────────────────────────────────────────────────────────────────────────────
+function makeCogPath(cx, cy, outerR, innerR, holeR, teeth) {
+  const π = Math.PI;
+  const step       = (2 * π) / teeth;
+  const toothAngle = step * 0.22;
+  const tipAngle   = step * 0.16;
+  const px = (r, a) => (cx + r * Math.cos(a)).toFixed(2);
+  const py = (r, a) => (cy + r * Math.sin(a)).toFixed(2);
+
+  // Start from the fall of the last tooth
+  const startA = (teeth - 1) * step - π / 2 + toothAngle;
+  let d = `M ${px(innerR, startA)} ${py(innerR, startA)} `;
+
+  for (let i = 0; i < teeth; i++) {
+    const a = i * step - π / 2;
+    d += `A ${innerR} ${innerR} 0 0 1 ${px(innerR, a - toothAngle)} ${py(innerR, a - toothAngle)} `;
+    d += `L ${px(outerR, a - tipAngle)} ${py(outerR, a - tipAngle)} `;
+    d += `A ${outerR} ${outerR} 0 0 1 ${px(outerR, a + tipAngle)} ${py(outerR, a + tipAngle)} `;
+    d += `L ${px(innerR, a + toothAngle)} ${py(innerR, a + toothAngle)} `;
+  }
+  d += 'Z';
+
+  // Centre hole (evenodd rule creates cutout)
+  if (holeR > 0) {
+    const hx1 = (cx + holeR).toFixed(2), hx2 = (cx - holeR).toFixed(2), hcy = cy.toFixed(2);
+    d += ` M ${hx1} ${hcy} A ${holeR} ${holeR} 0 1 0 ${hx2} ${hcy} A ${holeR} ${holeR} 0 1 0 ${hx1} ${hcy} Z`;
+  }
+  return d;
+}
+
+function makeGearSVG({ id, cls, spd, size, teeth=10, outerR=46, innerR=33, holeR=12, fill='var(--border)', extraCls='' }) {
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  if (id) svg.id = id;
+  svg.setAttribute('class', `gear ${cls} ${extraCls}`.trim());
+  svg.style.setProperty('--spd', spd);
+  svg.setAttribute('width', size);
+  svg.setAttribute('height', size);
+  svg.setAttribute('viewBox', '0 0 100 100');
+  svg.setAttribute('overflow', 'visible');
+  const path = document.createElementNS(NS, 'path');
+  path.setAttribute('d', makeCogPath(50, 50, outerR, innerR, holeR, teeth));
+  path.setAttribute('fill', fill);
+  path.setAttribute('fill-rule', 'evenodd');
+  svg.appendChild(path);
+  svg.addEventListener('click', e => {
+    e.stopPropagation();
+    svg.classList.add('gear-turbo');
+    setTimeout(() => svg.classList.remove('gear-turbo'), 2000);
+  });
+  return svg;
+}
+
+function addRivets(el) {
+  ['tl','tr','bl','br'].forEach(pos => {
+    const r = document.createElement('div');
+    r.className = `rivet rivet-${pos}`;
+    el.appendChild(r);
+  });
+}
+
+// Pre-compute paths used inline in HTML (header label cell gear)
+const _hdrGearPath = makeCogPath(50, 50, 46, 33, 14, 8);
+
+function initDecorations() {
+  // ── Header gears ──
+  const gearA = makeGearSVG({ id:'gear-a', cls:'gear-cw',  spd:'14s', size:38, teeth:10, fill:'#a07030' });
+  const gearB = makeGearSVG({ id:'gear-b', cls:'gear-ccw', spd:'9s',  size:28, teeth:8,  outerR:45, innerR:32, holeR:10, fill:'#8a5e22' });
+  const gearC = makeGearSVG({ id:'gear-c', cls:'gear-cw',  spd:'11s', size:22, teeth:7,  outerR:45, innerR:31, holeR:9,  fill:'#8a5e22' });
+  const hLeft  = document.querySelector('.header-left');
+  const hRight = document.querySelector('.header-right');
+  const appTitle = hLeft.querySelector('.app-title');
+  hLeft.insertBefore(gearA, appTitle);
+  hLeft.insertBefore(gearB, appTitle);
+  hRight.appendChild(gearC);
+
+  // ── Empty-state decorative gear ──
+  const gearEmpty = makeGearSVG({ id:'gear-empty', cls:'gear-cw', spd:'6s', size:60, teeth:12, outerR:46, innerR:33, holeR:14, fill:'#3a2010' });
+  gearEmpty.style.opacity = '0.45';
+  const emptyState = document.getElementById('empty-state');
+  emptyState.insertBefore(gearEmpty, emptyState.firstChild);
+
+  // ── Rivets on panels ──
+  addRivets(document.querySelector('header'));
+  addRivets(document.querySelector('.search-bar'));
+
+  // ── Modal gears + rivets (injected once) ──
+  const gearML = makeGearSVG({ cls:'gear-cw  modal-gear modal-gear-tl', spd:'10s', size:24, teeth:8, outerR:45, innerR:32, holeR:10, fill:'var(--border)' });
+  const gearMR = makeGearSVG({ cls:'gear-ccw modal-gear modal-gear-tr', spd:'7s',  size:18, teeth:6, outerR:45, innerR:31, holeR:9,  fill:'var(--border)' });
+  const calModal = document.getElementById('cal-modal');
+  calModal.appendChild(gearML);
+  calModal.appendChild(gearMR);
+  addRivets(calModal);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RENDER
+// ─────────────────────────────────────────────────────────────────────────────
+const $empty   = document.getElementById('empty-state');
+const $scroll  = document.getElementById('grid-scroll');
+const $thead   = document.getElementById('grid-thead');
+const $tbody   = document.getElementById('grid-tbody');
+const $nowLine = document.getElementById('now-line');
+
+function currentUtcHour() { return new Date().getUTCHours(); }
+
+function buildHeaderRow() {
+  const curH = currentUtcHour();
+  let cells = `<th class="label-cell">
+    <div class="lc-header-inner">
+      <svg id="gear-d" class="gear gear-cw" style="--spd:20s" width="14" height="14" viewBox="0 0 100 100" overflow="visible">
+        <path d="${_hdrGearPath}" fill="var(--border)" fill-rule="evenodd"/>
+      </svg>
+      <span>UTC →</span>
+    </div>
+  </th>`;
+  for (let h = 0; h < 24; h++) {
+    cells += `<th class="hour-cell${h === curH ? ' now-hour' : ''}">${String(h).padStart(2,'0')}</th>`;
+  }
+  return `<tr>${cells}</tr>`;
+}
+
+function buildDataRow(loc, idx) {
+  const curH = currentUtcHour();
+  let cells = '';
+  for (let h = 0; h < 24; h++) {
+    const lh = localHourAt(h, loc.tz);
+    cells += `<td class="hour-cell ${colorClass(lh)}${h === curH ? ' now-hour' : ''}">${String(lh).padStart(2,'0')}</td>`;
+  }
+  return `<tr>
+    <td class="label-cell" style="position:relative">
+      <div class="lc-inner">
+        <div class="lc-name">${esc(loc.label)}</div>
+        <div class="lc-time" id="lt-${idx}">${esc(localTimeNow(loc.tz))}</div>
+        <div class="lc-offset">${esc(utcOffset(loc.tz))}</div>
+      </div>
+      <button class="remove-btn" data-idx="${idx}" title="Remove">×</button>
+    </td>
+    ${cells}
+  </tr>`;
+}
+
+function positionNowLine() {
+  const now = new Date();
+  $nowLine.style.left = (LABEL_W + ((now.getUTCHours() + now.getUTCMinutes() / 60) / 24) * (24 * CELL_W)) + 'px';
+}
+
+function render() {
+  if (locations.length === 0) {
+    $empty.style.display = 'flex';
+    $scroll.style.display = 'none';
+    return;
+  }
+  $empty.style.display = 'none';
+  $scroll.style.display = 'block';
+
+  $thead.innerHTML = buildHeaderRow();
+  $tbody.innerHTML = locations.map((loc, i) => buildDataRow(loc, i)).join('');
+
+  // Re-attach click handler for the header mini gear
+  const gearD = document.getElementById('gear-d');
+  if (gearD) gearD.addEventListener('click', e => {
+    e.stopPropagation();
+    gearD.classList.add('gear-turbo');
+    setTimeout(() => gearD.classList.remove('gear-turbo'), 2000);
+  });
+
+  // Remove buttons
+  $tbody.querySelectorAll('.remove-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      locations.splice(parseInt(btn.dataset.idx), 1);
+      save(); render();
+    });
+  });
+
+  positionNowLine();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CLOCK
+// ─────────────────────────────────────────────────────────────────────────────
+function updateClocks() {
+  const now = new Date();
+  document.getElementById('utc-clock').textContent = 'UTC  ' + now.toLocaleString('en-US', {
+    timeZone: 'UTC', weekday: 'short', day: '2-digit', month: 'short',
+    hour: '2-digit', minute: '2-digit', hour12: false
+  });
+  locations.forEach((loc, i) => {
+    const el = document.getElementById(`lt-${i}`);
+    if (el) el.textContent = localTimeNow(loc.tz);
+  });
+  positionNowLine();
+}
+
+let lastHour = currentUtcHour();
+setInterval(() => {
+  const h = currentUtcHour();
+  if (h !== lastHour) { lastHour = h; render(); } else updateClocks();
+}, 30_000);
+
+updateClocks();
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SCROLL TO NOW
+// ─────────────────────────────────────────────────────────────────────────────
+function scrollToNow() {
+  const now = new Date();
+  const nowPx = LABEL_W + ((now.getUTCHours() + now.getUTCMinutes() / 60) / 24) * (24 * CELL_W);
+  $scroll.scrollLeft = Math.max(0, nowPx - $scroll.clientWidth / 2);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CUSTOM HOVER TOOLTIP  (event delegation on tbody)
+// ─────────────────────────────────────────────────────────────────────────────
+const $tooltip   = document.getElementById('cell-tooltip');
+const $cttHeader = document.getElementById('ctt-header');
+const $cttRows   = document.getElementById('ctt-rows');
+
+function showTooltip(utcHour, e) {
+  $cttHeader.textContent = `UTC ${String(utcHour).padStart(2,'0')}:00`;
+  $cttRows.innerHTML = locations.map(loc => {
+    const lh = localHourAt(utcHour, loc.tz);
+    return `<div class="ctt-row ${colorClass(lh)}">
+      <span>${esc(loc.label)}</span>
+      <span>${String(lh).padStart(2,'0')}:00</span>
+    </div>`;
+  }).join('');
+  $tooltip.style.display = 'block';
+  moveTooltip(e);
+}
+
+function moveTooltip(e) {
+  if ($tooltip.style.display === 'none') return;
+  const tw = $tooltip.offsetWidth, th = $tooltip.offsetHeight;
+  let x = e.clientX + 14, y = e.clientY + 14;
+  if (x + tw > window.innerWidth  - 8) x = e.clientX - tw - 10;
+  if (y + th > window.innerHeight - 8) y = e.clientY - th - 10;
+  $tooltip.style.left = x + 'px';
+  $tooltip.style.top  = y + 'px';
+}
+
+function hideTooltip() { $tooltip.style.display = 'none'; }
+
+$tbody.addEventListener('mouseover', e => {
+  const cell = e.target.closest('td.hour-cell');
+  if (!cell) { hideTooltip(); return; }
+  showTooltip(cell.cellIndex - 1, e);
+});
+$tbody.addEventListener('mousemove', e => moveTooltip(e));
+$tbody.addEventListener('mouseout', e => {
+  if (!e.relatedTarget?.closest?.('td.hour-cell')) hideTooltip();
+});
+$tbody.addEventListener('click', e => {
+  const cell = e.target.closest('td.hour-cell');
+  if (!cell) return;
+  hideTooltip();
+  showCalModal(cell.cellIndex - 1);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GOOGLE CALENDAR MODAL
+// ─────────────────────────────────────────────────────────────────────────────
+const $calOverlay  = document.getElementById('cal-overlay');
+const $calUTCLabel = document.getElementById('cal-utc-label');
+const $calFriends  = document.getElementById('cal-friend-times');
+const $calDate     = document.getElementById('cal-date');
+const $calTitle    = document.getElementById('cal-event-title');
+const $calDuration = document.getElementById('cal-duration');
+let calHour = 0;
+
+function showCalModal(utcHour) {
+  calHour = utcHour;
+  $calUTCLabel.textContent = `UTC ${String(utcHour).padStart(2,'0')}:00`;
+  $calDate.value = new Date().toISOString().slice(0, 10);
+  $calFriends.innerHTML = locations.length === 0
+    ? `<div style="color:var(--text-dim);font-size:12px;padding:4px 0">No locations added yet.</div>`
+    : locations.map(loc => {
+        const lh = localHourAt(utcHour, loc.tz);
+        return `<div class="cf-row ${colorClass(lh)}">
+          <span>${esc(loc.label)}</span>
+          <span class="cf-time">${String(lh).padStart(2,'0')}:00</span>
+        </div>`;
+      }).join('');
+  $calOverlay.style.display = 'flex';
+}
+
+function closeCalModal() { $calOverlay.style.display = 'none'; }
+
+function buildCalUrl() {
+  const dateStr = $calDate.value || new Date().toISOString().slice(0, 10);
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dur   = parseInt($calDuration.value) || 1;
+  const title = $calTitle.value.trim() || 'Factorio Flounderers Gaming Session';
+  const start = new Date(Date.UTC(y, m - 1, d, calHour, 0, 0));
+  const end   = new Date(start.getTime() + dur * 3_600_000);
+  const fmt   = dt => dt.toISOString().replace(/[-:.]/g, '').slice(0, 15) + 'Z';
+  const details = (locations.length
+    ? locations.map(loc => `${loc.label}: ${String(localHourAt(calHour, loc.tz)).padStart(2,'0')}:00`).join('\n') + '\n'
+    : '') + '\nSee you on the factory floor! ⚙';
+  return 'https://calendar.google.com/calendar/render?action=TEMPLATE'
+    + `&text=${encodeURIComponent(title)}`
+    + `&dates=${fmt(start)}/${fmt(end)}`
+    + `&details=${encodeURIComponent(details)}`;
+}
+
+document.getElementById('cal-submit').addEventListener('click', () => window.open(buildCalUrl(), '_blank'));
+document.getElementById('cal-close').addEventListener('click', closeCalModal);
+$calOverlay.addEventListener('click', e => { if (e.target === $calOverlay) closeCalModal(); });
+document.addEventListener('keydown', e => {
+  if ($calOverlay.style.display !== 'none' && e.key === 'Escape') closeCalModal();
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AUTOCOMPLETE
+// ─────────────────────────────────────────────────────────────────────────────
+const $input  = document.getElementById('search-input');
+const $ac     = document.getElementById('autocomplete');
+const $addBtn = document.getElementById('add-btn');
+let acList = [], acIdx = -1;
+
+function matches(q) {
+  if (!q) return [];
+  const lq = q.toLowerCase().trim();
+  const keys = Object.keys(TZ);
+  return [...keys.filter(k => k.startsWith(lq)), ...keys.filter(k => !k.startsWith(lq) && k.includes(lq))].slice(0, 8);
+}
+
+function renderAc(list) {
+  acList = list; acIdx = -1;
+  if (!list.length) { $ac.innerHTML = ''; $ac.classList.remove('open'); return; }
+  $ac.innerHTML = list.map((k, i) =>
+    `<div class="ac-item" data-idx="${i}" data-key="${esc(k)}">
+       <span>${esc(titleCase(k))}</span><span class="ac-tz">${esc(TZ[k])}</span>
+     </div>`
+  ).join('');
+  $ac.classList.add('open');
+  $ac.querySelectorAll('.ac-item').forEach(el =>
+    el.addEventListener('mousedown', e => { e.preventDefault(); pick(el.dataset.key); })
+  );
+}
+
+function hideAc() { $ac.classList.remove('open'); $ac.innerHTML = ''; acList = []; acIdx = -1; }
+
+function pick(key) { addLoc(titleCase(key), TZ[key]); $input.value = ''; hideAc(); }
+
+function addLoc(label, tz) {
+  if (locations.some(l => l.tz === tz)) return;
+  locations.push({ label, tz }); save(); render();
+  setTimeout(scrollToNow, 60);
+}
+
+$input.addEventListener('input', () => renderAc(matches($input.value)));
+$input.addEventListener('keydown', e => {
+  const items = $ac.querySelectorAll('.ac-item');
+  if (e.key === 'ArrowDown') { e.preventDefault(); acIdx = Math.min(acIdx + 1, items.length - 1); items.forEach((el, i) => el.classList.toggle('active', i === acIdx)); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); acIdx = Math.max(acIdx - 1, 0); items.forEach((el, i) => el.classList.toggle('active', i === acIdx)); }
+  else if (e.key === 'Enter') { e.preventDefault(); if (acIdx >= 0 && acList[acIdx]) pick(acList[acIdx]); else if (acList.length) pick(acList[0]); }
+  else if (e.key === 'Escape') hideAc();
+});
+$input.addEventListener('blur', () => setTimeout(hideAc, 160));
+$addBtn.addEventListener('click', () => {
+  const q = $input.value.trim().toLowerCase();
+  if (!q) return;
+  if (TZ[q]) { pick(q); return; }
+  const list = matches(q);
+  if (list.length) pick(list[0]);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HELP SCREEN
+// ─────────────────────────────────────────────────────────────────────────────
+const $helpScreen = document.getElementById('help-screen');
+
+function openHelp() { $helpScreen.classList.add('open'); $helpScreen.scrollTop = 0; }
+function closeHelp() { $helpScreen.classList.remove('open'); }
+
+document.getElementById('help-btn').addEventListener('click', openHelp);
+document.getElementById('help-back').addEventListener('click', closeHelp);
+document.addEventListener('keydown', e => {
+  if ($helpScreen.classList.contains('open') && e.key === 'Escape') closeHelp();
+});
+
+function initHelpDecorations() {
+  // Back-button area gear
+  const gearBack = makeGearSVG({ cls:'gear-cw', spd:'18s', size:24, teeth:8, outerR:45, innerR:32, holeR:10, fill:'var(--border)' });
+  const topbar = document.querySelector('.help-topbar');
+  topbar.insertBefore(gearBack, topbar.firstChild);
+  addRivets(topbar);
+
+  // Dedication plaque corner gears
+  const gearPL = makeGearSVG({ cls:'gear-cw  modal-gear modal-gear-tl', spd:'12s', size:26, teeth:10, outerR:46, innerR:33, holeR:12, fill:'var(--border)' });
+  const gearPR = makeGearSVG({ cls:'gear-ccw modal-gear modal-gear-tr', spd:'8s',  size:20, teeth:8,  outerR:45, innerR:32, holeR:10, fill:'var(--border)' });
+  const plaque = document.getElementById('dedication-plaque');
+  plaque.appendChild(gearPL);
+  plaque.appendChild(gearPR);
+  addRivets(plaque);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INIT
+// ─────────────────────────────────────────────────────────────────────────────
+initDecorations();
+initHelpDecorations();
+render();
+if (locations.length) setTimeout(scrollToNow, 80);
+</script>
+</body>
+</html>
